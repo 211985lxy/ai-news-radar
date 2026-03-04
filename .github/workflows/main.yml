@@ -1,0 +1,59 @@
+# 工作流名称：自动抓取新闻并生成 JSON
+name: Auto Generate AI News JSON
+
+# 触发条件：手动触发 + 每30分钟自动触发（确保数据实时）
+on:
+  workflow_dispatch:  # 手动触发（关键：先手动跑一次生成文件）
+  schedule:
+    - cron: '*/30 * * * *'  # 每30分钟自动运行
+
+# 核心任务：安装依赖 → 运行抓取脚本 → 提交 JSON 文件
+jobs:
+  generate-news-json:
+    runs-on: ubuntu-latest  # 运行环境：Ubuntu 服务器
+    steps:
+      # 步骤1：拉取你 Fork 仓库的代码到服务器
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 步骤2：配置 Python 环境（适配项目要求）
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # 步骤3：安装项目依赖（抓取新闻需要的包）
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # 安装项目依赖（如果仓库有 requirements.txt 则用这个命令）
+          if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
+          # 兜底安装核心依赖（防止 requirements.txt 缺失）
+          pip install requests feedparser python-dotenv beautifulsoup4
+
+      # 步骤4：复制 OPML 模板文件（项目运行必需）
+      - name: Copy OPML template
+        run: |
+          # 复制示例 OPML 文件为实际使用的文件（项目需要这个文件才能运行）
+          cp feeds/follow.example.opml feeds/follow.opml
+
+      # 步骤5：运行抓取脚本，生成 latest-24h.json
+      - name: Run news update script
+        run: |
+          # 执行项目核心脚本，生成 JSON 文件到 data 目录
+          python scripts/update_news.py --output-dir data --window-hours 24 --rss-opml feeds/follow.opml
+
+      # 步骤6：提交生成的 JSON 文件到你的仓库
+      - name: Commit and push JSON file
+        run: |
+          # 配置 Git 提交信息
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          # 创建 data 目录（如果不存在）
+          mkdir -p data
+          # 添加并提交文件
+          git add data/ feeds/follow.opml
+          # 若无变更则跳过提交（避免报错）
+          git commit -m "Auto generate latest-24h.json $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
+          # 推送变更到你的 Fork 仓库
+          git push
